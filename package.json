@@ -1,6 +1,6 @@
 {
-  "name": "chess-core",
-  "version": "0.0.1",
+  "name": "@pech/chess-core",
+  "version": "1.0.0",
   "description": "A fast, type-safe chess library with immutable state and bitboard representation",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -23,7 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "bun run build"
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "chess",
@@ -34,6 +34,21 @@
     "uci"
   ],
   "license": "MIT",
+  "author": "Eduardo Pech",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EduardoPech/chess-core.git"
+  },
+  "homepage": "https://github.com/EduardoPech/chess-core#readme",
+  "bugs": {
+    "url": "https://github.com/EduardoPech/chess-core/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@types/bun": "latest",
     "tsup": "^8.5.1",

@@ -13,15 +13,15 @@ A fast, type-safe chess library for JavaScript and TypeScript. Immutable state, 
 ## Install
 
 ```bash
-npm install chess-core
+npm install @pech/chess-core
 # or
-bun add chess-core
+bun add @pech/chess-core
 ```
 
 ## Quick Start
 
 ```typescript
-import { fromFen, getLegalMoves, makeMove, toSan, isCheckmate, STARTING_FEN } from 'chess-core';
+import { fromFen, getLegalMoves, makeMove, toSan, isCheckmate, STARTING_FEN } from '@pech/chess-core';
 
 const pos = fromFen(STARTING_FEN);
 const moves = getLegalMoves(pos);
