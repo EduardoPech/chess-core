@@ -1,0 +1,33 @@
+---
+title: chess-core
+description: Fast, type-safe chess library with immutable state and bitboards.
+hero:
+  tagline: A fast, type-safe chess library with immutable state and bitboard representation.
+  actions:
+    - text: Getting started
+      link: /guides/getting-started/
+      icon: right-arrow
+    - text: API reference
+      link: /reference/api/
+      icon: open-book
+      variant: minimal
+---
+
+## Quick start
+
+```bash
+npm install @pech/chess-core
+# or
+bun add @pech/chess-core
+```
+
+```typescript
+import { fromFen, getLegalMoves, makeMove, toSan, isCheckmate, STARTING_FEN } from '@pech/chess-core';
+
+const pos = fromFen(STARTING_FEN);
+const moves = getLegalMoves(pos);
+const newPos = makeMove(pos, moves[0]);
+
+console.log(toSan(pos, moves[0]));  // "e4"
+console.log(isCheckmate(newPos));   // false
+```
