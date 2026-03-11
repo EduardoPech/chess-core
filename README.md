@@ -2,6 +2,8 @@
 
 A fast, type-safe chess library for JavaScript and TypeScript. Immutable state, bitboard representation, and a pure functional API.
 
+**[Documentation](https://eduardopech.github.io/chess-core/)** — visit for guides, examples, and the full API reference.
+
 ## Features
 
 - **Bitboard-based** move generation for high performance
