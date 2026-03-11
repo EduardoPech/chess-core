@@ -22,12 +22,12 @@ bun add @pech/chess-core
 ```
 
 ```typescript
-import { fromFen, getLegalMoves, makeMove, toSan, isCheckmate, STARTING_FEN } from '@pech/chess-core';
+import { fromFen, fromSan, makeMove, toSan, isCheckmate, STARTING_FEN } from '@pech/chess-core';
 
 const pos = fromFen(STARTING_FEN);
-const moves = getLegalMoves(pos);
-const newPos = makeMove(pos, moves[0]);
+const move = fromSan(pos, 'e4');
+const newPos = makeMove(pos, move);
 
-console.log(toSan(pos, moves[0]));  // "e4"
+console.log(toSan(pos, move));      // "e4"
 console.log(isCheckmate(newPos));   // false
 ```
