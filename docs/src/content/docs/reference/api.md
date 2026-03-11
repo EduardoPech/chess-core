@@ -11,7 +11,7 @@ description: Public API of @pech/chess-core.
 | `Move` | A move with `from`, `to`, optional `promotion`, and `flag`. |
 | `Square` | Branded number for a board square (0–63). |
 | `Color` | `Color.White` or `Color.Black`. |
-| `PieceType` | `PieceType.Pawn`, `Knight`, `Bishop`, `Rook`, `Queen`, `King`. |
+| `PieceType` | `PieceType.Pawn`, `PieceType.Knight`, `PieceType.Bishop`, `PieceType.Rook`, `PieceType.Queen`, `PieceType.King`. |
 
 Helpers: `square`, `file`, `rank`, `fileOf`, `rankOf`, `squareFromFileRank`, `oppositeColor`.
 
@@ -74,8 +74,8 @@ Convert between **Move** objects and **SAN** (e.g. `"e4"`, `"Qxf7#"`) or **UCI**
 |----------|-------------|
 | `toSan(pos: Position, move: Move): string` | Standard Algebraic Notation, e.g. `"e4"`, `"Nf3"`. |
 | `toUci(move: Move): string` | UCI string, e.g. `"e2e4"`, `"e7e8q"`. |
-| `fromUci(pos: Position, uci: string): Move or null` | Parse UCI into a move (must be legal in `pos`). |
-| `fromSan(pos: Position, san: string): Move or null` | Parse SAN into a move (must be legal in `pos`). |
+| `fromUci(pos: Position, uci: string): Move | null` | Parse UCI into a move (must be legal in `pos`). |
+| `fromSan(pos: Position, san: string): Move | null` | Parse SAN into a move (must be legal in `pos`). |
 
 ---
 
