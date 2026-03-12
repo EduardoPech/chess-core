@@ -1,6 +1,6 @@
 {
   "name": "@pech/chess-core",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A fast, type-safe chess library with immutable state and bitboard representation",
   "type": "module",
   "main": "./dist/index.cjs",
