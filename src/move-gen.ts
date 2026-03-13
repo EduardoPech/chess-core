@@ -9,7 +9,7 @@ import {
   square,
   oppositeColor,
 } from './types.ts';
-import { bit, eachSquare, shiftNorth, shiftSouth, RANK_2, RANK_7, NOT_FILE_A, NOT_FILE_H, FULL } from './bitboard.ts';
+import { bit, eachSquare, shiftNorth, shiftSouth, shiftNorthEast, shiftNorthWest, shiftSouthEast, shiftSouthWest, RANK_2, RANK_7, NOT_FILE_A, NOT_FILE_H, FULL } from './bitboard.ts';
 import { occupied, colorBB, typeBB, kingSquare } from './board.ts';
 import { KNIGHT_ATTACKS, KING_ATTACKS, bishopAttacks, rookAttacks, queenAttacks } from './attacks.ts';
 import { makeMove } from './make-move.ts';
@@ -82,39 +82,41 @@ function generatePawnMoves(
     moves.push({ from, to, flag: MoveFlag.DoublePush });
   }
 
-  // Captures
-  const captureLeft = us === Color.White
-    ? (pawns << 7n) & ~(0x0101_0101_0101_0101n << 7n) // NOT_FILE_H simplified
-    : (pawns >> 7n) & ~0x0101_0101_0101_0101n;
-  const captureRight = us === Color.White
-    ? (pawns << 9n) & ~0x0101_0101_0101_0101n
-    : (pawns >> 9n) & ~(0x0101_0101_0101_0101n << 7n);
+  // Captures (use bitboard shifts so destination is 64-bit masked)
+  const captureLeft = us === Color.White ? shiftNorthWest(pawns) : shiftSouthWest(pawns);
+  const captureRight = us === Color.White ? shiftNorthEast(pawns) : shiftSouthEast(pawns);
+  const leftTargets = captureLeft & theirPieces;
+  const rightTargets = captureRight & theirPieces;
+  const leftOffset = us === Color.White ? -7 : 9;
+  const rightOffset = us === Color.White ? -9 : 7;
 
-  for (const targets of [captureLeft & theirPieces, captureRight & theirPieces]) {
-    for (const to of eachSquare(targets)) {
-      const fromOffset = targets === (captureLeft & theirPieces)
-        ? (us === Color.White ? -7 : 7)
-        : (us === Color.White ? -9 : 9);
-      const from = square(to + fromOffset);
-      if (bit(from) & promoRank) {
-        addPromotions(from, to, moves);
-      } else {
-        moves.push({ from, to, flag: MoveFlag.Normal });
-      }
+  for (const to of eachSquare(leftTargets)) {
+    const from = square(to + leftOffset);
+    if (bit(from) & promoRank) {
+      addPromotions(from, to, moves);
+    } else {
+      moves.push({ from, to, flag: MoveFlag.Normal });
+    }
+  }
+  for (const to of eachSquare(rightTargets)) {
+    const from = square(to + rightOffset);
+    if (bit(from) & promoRank) {
+      addPromotions(from, to, moves);
+    } else {
+      moves.push({ from, to, flag: MoveFlag.Normal });
     }
   }
 
   // En passant
   if (pos.epSquare !== null) {
     const epBit = bit(pos.epSquare);
-    for (const targets of [captureLeft, captureRight]) {
-      if (targets & epBit) {
-        const fromOffset = targets === captureLeft
-          ? (us === Color.White ? -7 : 7)
-          : (us === Color.White ? -9 : 9);
-        const from = square(pos.epSquare + fromOffset);
-        moves.push({ from, to: pos.epSquare, flag: MoveFlag.EnPassant });
-      }
+    if (captureLeft & epBit) {
+      const from = square(pos.epSquare + leftOffset);
+      moves.push({ from, to: pos.epSquare, flag: MoveFlag.EnPassant });
+    }
+    if (captureRight & epBit) {
+      const from = square(pos.epSquare + rightOffset);
+      moves.push({ from, to: pos.epSquare, flag: MoveFlag.EnPassant });
     }
   }
 }
