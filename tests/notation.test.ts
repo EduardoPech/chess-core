@@ -111,5 +111,13 @@ describe('SAN notation', () => {
       const pos = fromFen(STARTING_FEN);
       expect(fromSan(pos, 'Zz9')).toBeNull();
     });
+
+    it('should parse pawn capture cxd5 (disambiguation by file)', () => {
+      const fen = 'rnbqk1nr/pp3ppp/2p1p3/3p4/1bPPP3/8/PP1N1PPP/R1BQKBNR w KQkq - 1 6';
+      const pos = fromFen(fen);
+      const move = fromSan(pos, 'cxd5');
+      expect(move).not.toBeNull();
+      expect(toUci(move!)).toBe('c4d5');
+    });
   });
 });
