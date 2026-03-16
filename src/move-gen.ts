@@ -11,6 +11,7 @@ import {
 } from './types.ts';
 import { bit, eachSquare, shiftNorth, shiftSouth, shiftNorthEast, shiftNorthWest, shiftSouthEast, shiftSouthWest, RANK_2, RANK_7, NOT_FILE_A, NOT_FILE_H, FULL } from './bitboard.ts';
 import { occupied, colorBB, typeBB, kingSquare } from './board.ts';
+import { getCastlingRooks } from './castling.ts';
 import { KNIGHT_ATTACKS, KING_ATTACKS, bishopAttacks, rookAttacks, queenAttacks } from './attacks.ts';
 import { makeMove } from './make-move.ts';
 
@@ -187,47 +188,62 @@ function generateKingMoves(pos: Position, us: Color, ourPieces: bigint, _allOccu
 function generateCastlingMoves(pos: Position, us: Color, moves: Move[]): void {
   const allOcc = occupied(pos);
   const them = oppositeColor(us);
+  const kingsideRight = us === Color.White ? CastlingRight.WhiteKingside : CastlingRight.BlackKingside;
+  const queensideRight = us === Color.White ? CastlingRight.WhiteQueenside : CastlingRight.BlackQueenside;
 
-  if (us === Color.White) {
-    if (pos.castlingRights & CastlingRight.WhiteKingside) {
-      const f1 = square(5), g1 = square(6);
-      if (!(allOcc & (bit(f1) | bit(g1)))) {
-        if (!isSquareAttacked(pos, square(4), them) &&
-            !isSquareAttacked(pos, f1, them) &&
-            !isSquareAttacked(pos, g1, them)) {
-          moves.push({ from: square(4), to: g1, flag: MoveFlag.Castling });
+  const { king, kingsideRook, queensideRook } = getCastlingRooks(pos, us);
+  const rank = king >> 3;
+  const kingFile = king & 7;
+
+  // FIDE Chess960: king and rook end on the same squares as in standard chess.
+  // Kingside: king to g (file 6), rook to f (file 5)
+  if (pos.castlingRights & kingsideRight && kingsideRook !== null) {
+    const rookFile = kingsideRook & 7;
+    const kingDest = square(rank * 8 + 6);
+    let pathBB = 0n;
+    for (let f = kingFile + 1; f <= 5; f++) {
+      if (f !== rookFile) pathBB |= bit(square(rank * 8 + f));
+    }
+    if (!(allOcc & pathBB)) {
+      let notAttacked = !isSquareAttacked(pos, king, them);
+      if (notAttacked) {
+        for (let f = kingFile; f <= 6; f++) {
+          if (isSquareAttacked(pos, square(rank * 8 + f), them)) {
+            notAttacked = false;
+            break;
+          }
         }
       }
-    }
-    if (pos.castlingRights & CastlingRight.WhiteQueenside) {
-      const b1 = square(1), c1 = square(2), d1 = square(3);
-      if (!(allOcc & (bit(b1) | bit(c1) | bit(d1)))) {
-        if (!isSquareAttacked(pos, square(4), them) &&
-            !isSquareAttacked(pos, d1, them) &&
-            !isSquareAttacked(pos, c1, them)) {
-          moves.push({ from: square(4), to: c1, flag: MoveFlag.Castling });
-        }
+      if (notAttacked) {
+        moves.push({ from: king, to: kingDest, flag: MoveFlag.Castling });
       }
     }
-  } else {
-    if (pos.castlingRights & CastlingRight.BlackKingside) {
-      const f8 = square(61), g8 = square(62);
-      if (!(allOcc & (bit(f8) | bit(g8)))) {
-        if (!isSquareAttacked(pos, square(60), them) &&
-            !isSquareAttacked(pos, f8, them) &&
-            !isSquareAttacked(pos, g8, them)) {
-          moves.push({ from: square(60), to: g8, flag: MoveFlag.Castling });
-        }
+  }
+
+  // Queenside: king to c (file 2), rook to d (file 3). If king already on c1/c8, kingDest = king.
+  if (pos.castlingRights & queensideRight && queensideRook !== null) {
+    const rookFile = queensideRook & 7;
+    const kingDest = kingFile === 2 ? king : square(rank * 8 + 2);
+    let pathBB = 0n;
+    if (kingFile === 2) {
+      pathBB = bit(square(rank * 8 + 3)); // only rook dest (d1/d8) must be empty
+    } else {
+      for (let f = rookFile + 1; f <= kingFile - 1; f++) {
+        pathBB |= bit(square(rank * 8 + f));
       }
     }
-    if (pos.castlingRights & CastlingRight.BlackQueenside) {
-      const b8 = square(57), c8 = square(58), d8 = square(59);
-      if (!(allOcc & (bit(b8) | bit(c8) | bit(d8)))) {
-        if (!isSquareAttacked(pos, square(60), them) &&
-            !isSquareAttacked(pos, d8, them) &&
-            !isSquareAttacked(pos, c8, them)) {
-          moves.push({ from: square(60), to: c8, flag: MoveFlag.Castling });
+    if (!(allOcc & pathBB)) {
+      let notAttacked = !isSquareAttacked(pos, king, them);
+      if (notAttacked) {
+        for (let f = 2; f <= kingFile; f++) {
+          if (isSquareAttacked(pos, square(rank * 8 + f), them)) {
+            notAttacked = false;
+            break;
+          }
         }
+      }
+      if (notAttacked) {
+        moves.push({ from: king, to: kingDest, flag: MoveFlag.Castling });
       }
     }
   }

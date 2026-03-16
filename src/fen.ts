@@ -129,6 +129,12 @@ export function toFen(pos: Position): string {
 
 function parseCastling(str: string): number {
   if (str === '-') return CastlingRight.None;
+  // X-FEN / Chess960 use file letters (e.g. GCgc, FBfb). Treat as all castling allowed;
+  // getCastlingRooks will determine valid moves from the position.
+  const standard = 'KQkq';
+  for (const ch of str) {
+    if (!standard.includes(ch)) return CastlingRight.All;
+  }
   let rights = CastlingRight.None;
   if (str.includes('K')) rights |= CastlingRight.WhiteKingside;
   if (str.includes('Q')) rights |= CastlingRight.WhiteQueenside;

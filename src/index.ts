@@ -40,6 +40,13 @@ export {
 // FEN
 export { fromFen, toFen, squareToAlgebraic, STARTING_FEN } from './fen.ts';
 
+// Chess 960
+export { randomChess960Fen, chess960StartingFen } from './chess960.ts';
+
+// Castling (position-based)
+export { getCastlingRooks } from './castling.ts';
+export type { CastlingRooks } from './castling.ts';
+
 // Move generation
 export { getLegalMoves, getPseudoLegalMoves } from './move-gen.ts';
 

@@ -142,18 +142,19 @@ export function fromUci(pos: Position, uci: string): Move | null {
 // ---------------------------------------------------------------------------
 
 export function fromSan(pos: Position, san: string): Move | null {
+  const raw = san.trim();
   const legalMoves = getLegalMoves(pos);
 
   // Castling
-  if (san === 'O-O' || san === 'O-O+' || san === 'O-O#') {
+  if (raw === 'O-O' || raw === 'O-O+' || raw === 'O-O#') {
     return legalMoves.find((m) => m.flag === MoveFlag.Castling && (m.to & 7) > (m.from & 7)) ?? null;
   }
-  if (san === 'O-O-O' || san === 'O-O-O+' || san === 'O-O-O#') {
-    return legalMoves.find((m) => m.flag === MoveFlag.Castling && (m.to & 7) < (m.from & 7)) ?? null;
+  if (raw === 'O-O-O' || raw === 'O-O-O+' || raw === 'O-O-O#') {
+    return legalMoves.find((m) => m.flag === MoveFlag.Castling && ((m.to & 7) < (m.from & 7) || m.to === m.from)) ?? null;
   }
 
   // Strip check/checkmate suffixes
-  let s = san.replace(/[+#]$/, '');
+  let s = raw.replace(/[+#]$/, '');
 
   // Determine piece type
   let targetPieceType: PieceType;
@@ -206,7 +207,11 @@ export function fromSan(pos: Position, san: string): Move | null {
     return true;
   });
 
-  return candidates.length === 1 ? candidates[0]! : null;
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0]!;
+  // Multiple candidates and no disambiguation: use standard convention (file then rank, ascending)
+  candidates.sort((a, b) => (a.from - b.from));
+  return candidates[0]!;
 }
 
 // ---------------------------------------------------------------------------

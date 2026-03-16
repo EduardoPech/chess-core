@@ -8,7 +8,8 @@ import {
   square,
   oppositeColor,
 } from './types.ts';
-import { setPiece, removePiece, pieceAt } from './board.ts';
+import { setPiece, removePiece, pieceAt, typeBB, colorBB } from './board.ts';
+import { getCastlingRooks } from './castling.ts';
 import { hashPiece, hashSide, hashCastling, hashEp } from './zobrist.ts';
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,17 @@ export function makeMove(pos: Position, move: Move): Position {
   }
 
   let newPos = removePiece(pos, move.from, us, piece.type);
+
+  // Castling: move the rook first (before placing king). FIDE Chess960: king/rook end on standard squares (kingside g/f, queenside c/d).
+  if (move.flag === MoveFlag.Castling) {
+    const { kingsideRook, queensideRook } = getCastlingRooks(pos, us);
+    const isKingside = (move.to & 7) > (move.from & 7);
+    const rank = move.from >> 3;
+    const rookFrom = isKingside ? kingsideRook! : queensideRook!;
+    const rookTo = square(rank * 8 + (isKingside ? 5 : 3));
+    newPos = removePiece(newPos, rookFrom, us, PieceType.Rook);
+    newPos = setPiece(newPos, rookTo, us, PieceType.Rook);
+  }
 
   // Capture: remove enemy piece at target
   const captured = pieceAt(pos, move.to);
@@ -44,22 +56,13 @@ export function makeMove(pos: Position, move: Move): Position {
     newPos = removePiece(newPos, capturedPawnSquare, them, PieceType.Pawn);
   }
 
-  // Castling: move the rook
-  if (move.flag === MoveFlag.Castling) {
-    const isKingside = move.to > move.from;
-    const rookFrom = square(isKingside ? move.from + 3 : move.from - 4);
-    const rookTo = square(isKingside ? move.from + 1 : move.from - 1);
-    newPos = removePiece(newPos, rookFrom, us, PieceType.Rook);
-    newPos = setPiece(newPos, rookTo, us, PieceType.Rook);
-  }
-
   // Update en passant square
   const newEpSquare = move.flag === MoveFlag.DoublePush
     ? ((us === Color.White ? move.from + 8 : move.from - 8) as typeof move.from)
     : null;
 
-  // Update castling rights
-  const newCastlingRights = updateCastlingRights(pos.castlingRights, move, piece.type, us);
+  // Update castling rights (position-based for standard and Chess 960)
+  const newCastlingRights = updateCastlingRights(pos, move);
 
   // Update clocks
   const isCapture = captured !== null || move.flag === MoveFlag.EnPassant;
@@ -115,11 +118,13 @@ function incrementalHash(
     h ^= hashPiece(them, PieceType.Pawn, capturedSq);
   }
 
-  // Castling: move the rook
+  // Castling: move the rook (standard target squares g/f or c/d)
   if (move.flag === MoveFlag.Castling) {
-    const isKingside = move.to > move.from;
-    const rookFrom = square(isKingside ? move.from + 3 : move.from - 4);
-    const rookTo = square(isKingside ? move.from + 1 : move.from - 1);
+    const { kingsideRook, queensideRook } = getCastlingRooks(pos, us);
+    const isKingside = (move.to & 7) > (move.from & 7);
+    const rank = move.from >> 3;
+    const rookFrom = isKingside ? kingsideRook! : queensideRook!;
+    const rookTo = square(rank * 8 + (isKingside ? 5 : 3));
     h ^= hashPiece(us, PieceType.Rook, rookFrom);
     h ^= hashPiece(us, PieceType.Rook, rookTo);
   }
@@ -139,26 +144,30 @@ function incrementalHash(
 }
 
 // ---------------------------------------------------------------------------
-// Castling rights update
+// Castling rights update (position-based for standard and Chess 960)
 // ---------------------------------------------------------------------------
 
-// Mask indexed by square: AND with current rights to clear relevant bits.
-// Moving FROM or capturing TO one of these squares revokes the associated right.
-const CASTLING_MASK: number[] = new Array<number>(64).fill(
-  CastlingRight.All,
-);
-CASTLING_MASK[0] = ~CastlingRight.WhiteQueenside & 0xF;   // a1 rook
-CASTLING_MASK[4] = ~(CastlingRight.WhiteKingside | CastlingRight.WhiteQueenside) & 0xF; // e1 king
-CASTLING_MASK[7] = ~CastlingRight.WhiteKingside & 0xF;    // h1 rook
-CASTLING_MASK[56] = ~CastlingRight.BlackQueenside & 0xF;  // a8 rook
-CASTLING_MASK[60] = ~(CastlingRight.BlackKingside | CastlingRight.BlackQueenside) & 0xF; // e8 king
-CASTLING_MASK[63] = ~CastlingRight.BlackKingside & 0xF;   // h8 rook
+function updateCastlingRights(pos: Position, move: Move): number {
+  let rights = pos.castlingRights;
 
-function updateCastlingRights(
-  rights: number,
-  move: Move,
-  _pieceType: PieceType,
-  _us: Color,
-): number {
-  return rights & CASTLING_MASK[move.from]! & CASTLING_MASK[move.to]!;
+  for (const color of [Color.White, Color.Black] as const) {
+    const hasKing = (colorBB(pos, color) & typeBB(pos, PieceType.King)) !== 0n;
+    if (!hasKing) continue;
+
+    const { king, kingsideRook, queensideRook } = getCastlingRooks(pos, color);
+    const kingsideRight = color === Color.White ? CastlingRight.WhiteKingside : CastlingRight.BlackKingside;
+    const queensideRight = color === Color.White ? CastlingRight.WhiteQueenside : CastlingRight.BlackQueenside;
+
+    if (move.from === king || move.to === king) {
+      rights &= ~(kingsideRight | queensideRight);
+    }
+    if (kingsideRook !== null && (move.from === kingsideRook || move.to === kingsideRook)) {
+      rights &= ~kingsideRight;
+    }
+    if (queensideRook !== null && (move.from === queensideRook || move.to === queensideRook)) {
+      rights &= ~queensideRight;
+    }
+  }
+
+  return rights;
 }
