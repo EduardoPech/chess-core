@@ -112,6 +112,21 @@ describe('SAN notation', () => {
       expect(fromSan(pos, 'Zz9')).toBeNull();
     });
 
+    it('should return null for ambiguous SAN instead of guessing', () => {
+      // Knights on c3 and g1 can both reach e2 (e2 pawn removed)
+      const pos = fromFen('rnbqkbnr/pppppppp/8/8/8/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 1');
+      expect(fromSan(pos, 'Ne2')).toBeNull();
+      expect(fromSan(pos, 'Nge2')).not.toBeNull();
+      expect(fromSan(pos, 'Nce2')).not.toBeNull();
+    });
+
+    it('should not resolve a pawn push SAN to a capture', () => {
+      // White pawn d3 can capture e4, but "e4" (a push) must not match it
+      const pos = fromFen('4k3/8/8/8/4p3/3P4/8/4K3 w - - 0 1');
+      expect(fromSan(pos, 'e4')).toBeNull();
+      expect(fromSan(pos, 'dxe4')).not.toBeNull();
+    });
+
     it('should parse pawn capture cxd5 (disambiguation by file)', () => {
       const fen = 'rnbqk1nr/pp3ppp/2p1p3/3p4/1bPPP3/8/PP1N1PPP/R1BQKBNR w KQkq - 1 6';
       const pos = fromFen(fen);

@@ -49,29 +49,39 @@ export function rankBB(r: Rank): bigint {
 // Population count (number of set bits)
 // ---------------------------------------------------------------------------
 
+const LO_MASK = 0xFFFF_FFFFn;
+
+function popcount32(v: number): number {
+  v = v - ((v >>> 1) & 0x55555555);
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  v = (v + (v >>> 4)) & 0x0f0f0f0f;
+  return (v * 0x01010101) >>> 24;
+}
+
 export function popcount(bb: bigint): number {
-  let count = 0;
-  let b = bb;
-  while (b) {
-    b &= b - 1n;
-    count++;
-  }
-  return count;
+  return popcount32(Number(bb & LO_MASK)) + popcount32(Number((bb >> 32n) & LO_MASK));
 }
 
 // ---------------------------------------------------------------------------
-// Bit scan (index of least significant set bit)
+// Bit scans via 32-bit halves + Math.clz32 (O(1), no bigint loops)
 // ---------------------------------------------------------------------------
 
+/** Index of the least significant set bit, or -1 when empty. */
 export function bitscan(bb: bigint): Square {
-  if (bb === EMPTY) return -1 as Square;
-  let idx = 0;
-  let b = bb;
-  while ((b & 1n) === 0n) {
-    b >>= 1n;
-    idx++;
-  }
-  return idx as Square;
+  const lo = Number(bb & LO_MASK);
+  if (lo !== 0) return (31 - Math.clz32(lo & -lo)) as Square;
+  const hi = Number((bb >> 32n) & LO_MASK);
+  if (hi === 0) return -1 as Square;
+  return (63 - Math.clz32(hi & -hi)) as Square;
+}
+
+/** Index of the most significant set bit, or -1 when empty. */
+export function bitscanReverse(bb: bigint): Square {
+  const hi = Number((bb >> 32n) & LO_MASK);
+  if (hi !== 0) return (63 - Math.clz32(hi)) as Square;
+  const lo = Number(bb & LO_MASK);
+  if (lo === 0) return -1 as Square;
+  return (31 - Math.clz32(lo)) as Square;
 }
 
 // ---------------------------------------------------------------------------

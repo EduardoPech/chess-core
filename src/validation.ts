@@ -3,11 +3,13 @@ import {
   type Square,
   Color,
   PieceType,
+  GameResult,
+  DrawReason,
   oppositeColor,
 } from './types.ts';
-import { bit, eachSquare, popcount } from './bitboard.ts';
-import { occupied, colorBB, typeBB, kingSquare } from './board.ts';
-import { KNIGHT_ATTACKS, KING_ATTACKS, bishopAttacks, rookAttacks } from './attacks.ts';
+import { popcount } from './bitboard.ts';
+import { occupied, typeBB, kingSquare } from './board.ts';
+import { isAttacked } from './attacks.ts';
 import { getLegalMoves } from './move-gen.ts';
 
 // ---------------------------------------------------------------------------
@@ -15,41 +17,7 @@ import { getLegalMoves } from './move-gen.ts';
 // ---------------------------------------------------------------------------
 
 export function isSquareAttacked(pos: Position, sq: Square, byColor: Color): boolean {
-  const attackers = colorBB(pos, byColor);
-  const allOccupied = occupied(pos);
-
-  // Knight attacks
-  if (KNIGHT_ATTACKS[sq]! & attackers & typeBB(pos, PieceType.Knight)) return true;
-
-  // King attacks
-  if (KING_ATTACKS[sq]! & attackers & typeBB(pos, PieceType.King)) return true;
-
-  // Bishop / Queen (diagonal)
-  const diag = bishopAttacks(sq, allOccupied) & attackers;
-  if (diag & (typeBB(pos, PieceType.Bishop) | typeBB(pos, PieceType.Queen))) return true;
-
-  // Rook / Queen (straight)
-  const straight = rookAttacks(sq, allOccupied) & attackers;
-  if (straight & (typeBB(pos, PieceType.Rook) | typeBB(pos, PieceType.Queen))) return true;
-
-  // Pawn attacks
-  const pawnAttackers = attackers & typeBB(pos, PieceType.Pawn);
-  if (pawnAttackers) {
-    const sqBit = bit(sq);
-    if (byColor === Color.White) {
-      if (((sqBit >> 7n) & ~0x0101_0101_0101_0101n & pawnAttackers) ||
-          ((sqBit >> 9n) & ~(0x0101_0101_0101_0101n << 7n) & pawnAttackers)) {
-        return true;
-      }
-    } else {
-      if (((sqBit << 7n) & ~(0x0101_0101_0101_0101n << 7n) & pawnAttackers) ||
-          ((sqBit << 9n) & ~0x0101_0101_0101_0101n & pawnAttackers)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  return isAttacked(pos.pieces.byColor, pos.pieces.byType, sq, byColor);
 }
 
 // ---------------------------------------------------------------------------
@@ -84,11 +52,8 @@ export function isInsufficientMaterial(pos: Position): boolean {
   const knights = typeBB(pos, PieceType.Knight);
   const bishops = typeBB(pos, PieceType.Bishop);
 
-  let pieceCount = 0;
-  for (const _ of eachSquare(allPieces)) {
-    pieceCount++;
-    if (pieceCount > 4) return false;
-  }
+  const pieceCount = popcount(allPieces);
+  if (pieceCount > 4) return false;
 
   // K vs K
   if (pieceCount === 2) return true;
@@ -112,4 +77,60 @@ export function isInsufficientMaterial(pos: Position): boolean {
 
 export function isFiftyMoveRule(pos: Position): boolean {
   return pos.halfmoveClock >= 100;
+}
+
+// ---------------------------------------------------------------------------
+// Repetition detection (stateless: caller supplies the hash history)
+// ---------------------------------------------------------------------------
+
+/** Counts how many entries of `history` equal `hash`. */
+export function countRepetitions(hash: bigint, history: readonly bigint[]): number {
+  let count = 0;
+  for (const h of history) {
+    if (h === hash) count++;
+  }
+  return count;
+}
+
+/**
+ * True when the current position has occurred three or more times.
+ * `history` must contain the hashes of every position reached so far,
+ * including `pos` itself (e.g. push `pos.hash` after every makeMove).
+ */
+export function isThreefoldRepetition(pos: Position, history: readonly bigint[]): boolean {
+  return countRepetitions(pos.hash, history) >= 3;
+}
+
+// ---------------------------------------------------------------------------
+// Game result
+// ---------------------------------------------------------------------------
+
+export interface GameStatus {
+  result: GameResult;
+  drawReason?: DrawReason;
+}
+
+/**
+ * Evaluates the game state of a position. Repetition is only checked when a
+ * hash `history` is provided (see isThreefoldRepetition for its contract).
+ */
+export function getGameResult(pos: Position, history?: readonly bigint[]): GameStatus {
+  if (getLegalMoves(pos).length === 0) {
+    if (isCheck(pos)) {
+      return {
+        result: pos.sideToMove === Color.White ? GameResult.BlackWins : GameResult.WhiteWins,
+      };
+    }
+    return { result: GameResult.Draw, drawReason: DrawReason.Stalemate };
+  }
+  if (isInsufficientMaterial(pos)) {
+    return { result: GameResult.Draw, drawReason: DrawReason.InsufficientMaterial };
+  }
+  if (isFiftyMoveRule(pos)) {
+    return { result: GameResult.Draw, drawReason: DrawReason.FiftyMoveRule };
+  }
+  if (history !== undefined && isThreefoldRepetition(pos, history)) {
+    return { result: GameResult.Draw, drawReason: DrawReason.ThreefoldRepetition };
+  }
+  return { result: GameResult.InProgress };
 }

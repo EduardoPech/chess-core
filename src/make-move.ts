@@ -1,59 +1,84 @@
 import {
   type Position,
   type Move,
+  type Square,
+  type CastlingRookSquares,
   Color,
   PieceType,
   MoveFlag,
-  CastlingRight,
   square,
   oppositeColor,
 } from './types.ts';
-import { setPiece, removePiece, pieceAt, typeBB, colorBB } from './board.ts';
-import { getCastlingRooks } from './castling.ts';
+import { bit } from './bitboard.ts';
 import { hashPiece, hashSide, hashCastling, hashEp } from './zobrist.ts';
 
 // ---------------------------------------------------------------------------
-// Apply a move to produce a new immutable Position
+// Apply a move to produce a new immutable Position (single allocation)
 // ---------------------------------------------------------------------------
 
 export function makeMove(pos: Position, move: Move): Position {
   const us = pos.sideToMove;
   const them = oppositeColor(us);
-  const piece = pieceAt(pos, move.from);
+  const pieces = pos.pieces;
+  const fromBB = bit(move.from);
+  const toBB = bit(move.to);
 
-  if (!piece) {
-    throw new Error(`No piece at source square ${move.from}`);
+  if (!(pieces.byColor[us] & fromBB)) {
+    throw new Error(`No piece of the side to move at source square ${move.from}`);
   }
+  const srcType = typeAt(pieces.byType, fromBB);
 
-  let newPos = removePiece(pos, move.from, us, piece.type);
+  const byColor: [bigint, bigint] = [pieces.byColor[0], pieces.byColor[1]];
+  const byType: [bigint, bigint, bigint, bigint, bigint, bigint] = [
+    pieces.byType[0],
+    pieces.byType[1],
+    pieces.byType[2],
+    pieces.byType[3],
+    pieces.byType[4],
+    pieces.byType[5],
+  ];
 
-  // Castling: move the rook first (before placing king). FIDE Chess960: king/rook end on standard squares (kingside g/f, queenside c/d).
-  if (move.flag === MoveFlag.Castling) {
-    const { kingsideRook, queensideRook } = getCastlingRooks(pos, us);
-    const isKingside = (move.to & 7) > (move.from & 7);
-    const rank = move.from >> 3;
-    const rookFrom = isKingside ? kingsideRook! : queensideRook!;
-    const rookTo = square(rank * 8 + (isKingside ? 5 : 3));
-    newPos = removePiece(newPos, rookFrom, us, PieceType.Rook);
-    newPos = setPiece(newPos, rookTo, us, PieceType.Rook);
-  }
+  const isCastling = move.flag === MoveFlag.Castling;
+  let placedType = srcType;
+  let capturedType: PieceType | null = null;
+  let castlingRookFrom: Square | null = null;
+  let castlingRookTo: Square | null = null;
 
-  // Capture: remove enemy piece at target
-  const captured = pieceAt(pos, move.to);
-  if (captured) {
-    newPos = removePiece(newPos, move.to, them, captured.type);
-  }
+  if (isCastling) {
+    // FIDE Chess960: king/rook end on standard squares (kingside g/f, queenside
+    // c/d). Castling never captures; the king's destination may coincide with
+    // the rook's square or the king's own origin. When from === to, the wing is
+    // identified by the destination file.
+    const isKingside = move.to === move.from ? (move.from & 7) === 6 : (move.to & 7) > (move.from & 7);
+    const rookSq = pos.castlingRooks[(us << 1) | (isKingside ? 0 : 1)] ?? null;
+    if (rookSq === null) {
+      throw new Error('Castling move without a matching castling right');
+    }
+    castlingRookFrom = rookSq;
+    castlingRookTo = square((move.from >> 3) * 8 + (isKingside ? 5 : 3));
+    const rookFromBB = bit(castlingRookFrom);
+    const rookToBB = bit(castlingRookTo);
+    byColor[us] = (byColor[us] & ~fromBB & ~rookFromBB) | toBB | rookToBB;
+    byType[PieceType.King] = (byType[PieceType.King] & ~fromBB) | toBB;
+    byType[PieceType.Rook] = (byType[PieceType.Rook] & ~rookFromBB) | rookToBB;
+  } else {
+    // Capture: remove enemy piece at target (or the en-passant pawn)
+    if (byColor[them] & toBB) {
+      capturedType = typeAt(pieces.byType, toBB);
+      byColor[them] &= ~toBB;
+      byType[capturedType] &= ~toBB;
+    } else if (move.flag === MoveFlag.EnPassant) {
+      const capBB = bit(square(us === Color.White ? move.to - 8 : move.to + 8));
+      byColor[them] &= ~capBB;
+      byType[PieceType.Pawn] &= ~capBB;
+    }
 
-  // Place piece at destination (or promoted piece)
-  const placedType = move.flag === MoveFlag.Promotion && move.promotion !== undefined
-    ? move.promotion
-    : piece.type;
-  newPos = setPiece(newPos, move.to, us, placedType);
-
-  // En passant capture
-  if (move.flag === MoveFlag.EnPassant) {
-    const capturedPawnSquare = (us === Color.White ? move.to - 8 : move.to + 8) as typeof move.to;
-    newPos = removePiece(newPos, capturedPawnSquare, them, PieceType.Pawn);
+    if (move.flag === MoveFlag.Promotion && move.promotion !== undefined) {
+      placedType = move.promotion;
+    }
+    byColor[us] = (byColor[us] & ~fromBB) | toBB;
+    byType[srcType] &= ~fromBB;
+    byType[placedType] |= toBB;
   }
 
   // Update en passant square
@@ -61,27 +86,35 @@ export function makeMove(pos: Position, move: Move): Position {
     ? ((us === Color.White ? move.from + 8 : move.from - 8) as typeof move.from)
     : null;
 
-  // Update castling rights (position-based for standard and Chess 960)
-  const newCastlingRights = updateCastlingRights(pos, move);
+  // Update castling rights via the stored rook squares — O(1)
+  const { rights: newCastlingRights, rooks: newCastlingRooks } =
+    updateCastling(pos, move, us, srcType);
 
   // Update clocks
-  const isCapture = captured !== null || move.flag === MoveFlag.EnPassant;
-  const isPawnMove = piece.type === PieceType.Pawn;
-  const newHalfmove = isCapture || isPawnMove ? 0 : pos.halfmoveClock + 1;
+  const isCapture = capturedType !== null || move.flag === MoveFlag.EnPassant;
+  const newHalfmove = isCapture || srcType === PieceType.Pawn ? 0 : pos.halfmoveClock + 1;
   const newFullmove = us === Color.Black ? pos.fullmoveNumber + 1 : pos.fullmoveNumber;
 
   return {
-    ...newPos,
+    pieces: { byColor, byType },
     sideToMove: them,
     castlingRights: newCastlingRights,
+    castlingRooks: newCastlingRooks,
     epSquare: newEpSquare,
     halfmoveClock: newHalfmove,
     fullmoveNumber: newFullmove,
     hash: incrementalHash(
-      pos, us, them, piece.type, placedType, captured?.type ?? null,
-      move, newCastlingRights, newEpSquare,
+      pos, us, them, srcType, placedType, capturedType,
+      move, newCastlingRights, newEpSquare, castlingRookFrom, castlingRookTo,
     ),
   };
+}
+
+function typeAt(byType: readonly bigint[], b: bigint): PieceType {
+  for (let pt = 0; pt < 5; pt++) {
+    if (byType[pt]! & b) return pt as PieceType;
+  }
+  return PieceType.King;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,17 +131,17 @@ function incrementalHash(
   move: Move,
   newCastlingRights: number,
   newEpSquare: typeof move.from | null,
+  castlingRookFrom: Square | null,
+  castlingRookTo: Square | null,
 ): bigint {
   let h = pos.hash;
 
-  // Remove moved piece from source
+  // Remove moved piece from source, place it (or the promoted piece) at dest
   h ^= hashPiece(us, srcType, move.from);
-
-  // Place piece (or promoted piece) at destination
   h ^= hashPiece(us, placedType, move.to);
 
   // Remove captured piece
-  if (capturedType !== null && move.flag !== MoveFlag.EnPassant) {
+  if (capturedType !== null) {
     h ^= hashPiece(them, capturedType, move.to);
   }
 
@@ -118,15 +151,10 @@ function incrementalHash(
     h ^= hashPiece(them, PieceType.Pawn, capturedSq);
   }
 
-  // Castling: move the rook (standard target squares g/f or c/d)
-  if (move.flag === MoveFlag.Castling) {
-    const { kingsideRook, queensideRook } = getCastlingRooks(pos, us);
-    const isKingside = (move.to & 7) > (move.from & 7);
-    const rank = move.from >> 3;
-    const rookFrom = isKingside ? kingsideRook! : queensideRook!;
-    const rookTo = square(rank * 8 + (isKingside ? 5 : 3));
-    h ^= hashPiece(us, PieceType.Rook, rookFrom);
-    h ^= hashPiece(us, PieceType.Rook, rookTo);
+  // Castling: the rook moved too
+  if (castlingRookFrom !== null && castlingRookTo !== null) {
+    h ^= hashPiece(us, PieceType.Rook, castlingRookFrom);
+    h ^= hashPiece(us, PieceType.Rook, castlingRookTo);
   }
 
   // Flip side to move
@@ -144,30 +172,45 @@ function incrementalHash(
 }
 
 // ---------------------------------------------------------------------------
-// Castling rights update (position-based for standard and Chess 960)
+// Castling rights update (O(1) via the stored rook squares)
 // ---------------------------------------------------------------------------
 
-function updateCastlingRights(pos: Position, move: Move): number {
-  let rights = pos.castlingRights;
-
-  for (const color of [Color.White, Color.Black] as const) {
-    const hasKing = (colorBB(pos, color) & typeBB(pos, PieceType.King)) !== 0n;
-    if (!hasKing) continue;
-
-    const { king, kingsideRook, queensideRook } = getCastlingRooks(pos, color);
-    const kingsideRight = color === Color.White ? CastlingRight.WhiteKingside : CastlingRight.BlackKingside;
-    const queensideRight = color === Color.White ? CastlingRight.WhiteQueenside : CastlingRight.BlackQueenside;
-
-    if (move.from === king || move.to === king) {
-      rights &= ~(kingsideRight | queensideRight);
-    }
-    if (kingsideRook !== null && (move.from === kingsideRook || move.to === kingsideRook)) {
-      rights &= ~kingsideRight;
-    }
-    if (queensideRook !== null && (move.from === queensideRook || move.to === queensideRook)) {
-      rights &= ~queensideRight;
-    }
+function updateCastling(
+  pos: Position,
+  move: Move,
+  us: Color,
+  movedType: PieceType,
+): { rights: number; rooks: CastlingRookSquares } {
+  if (pos.castlingRights === 0) {
+    return { rights: 0, rooks: pos.castlingRooks };
   }
 
-  return rights;
+  let [wk, wq, bk, bq] = pos.castlingRooks;
+
+  if (movedType === PieceType.King) {
+    if (us === Color.White) {
+      wk = null;
+      wq = null;
+    } else {
+      bk = null;
+      bq = null;
+    }
+  }
+  // A move from a castling rook's square (the rook moved) or to it (the rook
+  // was captured) invalidates that right.
+  if (wk !== null && (move.from === wk || move.to === wk)) wk = null;
+  if (wq !== null && (move.from === wq || move.to === wq)) wq = null;
+  if (bk !== null && (move.from === bk || move.to === bk)) bk = null;
+  if (bq !== null && (move.from === bq || move.to === bq)) bq = null;
+
+  const rights =
+    (wk !== null ? 1 : 0) |
+    (wq !== null ? 2 : 0) |
+    (bk !== null ? 4 : 0) |
+    (bq !== null ? 8 : 0);
+
+  if (rights === pos.castlingRights) {
+    return { rights, rooks: pos.castlingRooks };
+  }
+  return { rights, rooks: [wk, wq, bk, bq] };
 }

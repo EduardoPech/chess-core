@@ -14,6 +14,8 @@ export default defineConfig({
 				{ label: 'Introduction', slug: '' },
 				{ label: 'Getting started', slug: 'guides/getting-started' },
 				{ label: "Scholar's Mate example", slug: 'guides/scholars-mate' },
+				{ label: 'Chess 960', slug: 'guides/chess-960' },
+				{ label: 'Draws & game result', slug: 'guides/draws-and-game-result' },
 				{
 					label: 'Reference',
 					items: [

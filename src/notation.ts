@@ -178,6 +178,7 @@ export function fromSan(pos: Position, san: string): Move | null {
   }
 
   // Remove capture marker
+  const isCaptureSan = s.includes('x');
   s = s.replace('x', '');
 
   // Last two chars are the destination square
@@ -200,6 +201,8 @@ export function fromSan(pos: Position, san: string): Move | null {
     if (m.to !== to) return false;
     const p = pieceAt(pos, m.from);
     if (!p || p.type !== targetPieceType) return false;
+    // A pawn SAN without a capture marker is a push: from and to share a file
+    if (targetPieceType === PieceType.Pawn && !isCaptureSan && (m.from & 7) !== (m.to & 7)) return false;
     if (disambigFile !== null && (m.from & 7) !== disambigFile) return false;
     if (disambigRank !== null && (m.from >> 3) !== disambigRank) return false;
     if (promotion !== undefined && m.promotion !== promotion) return false;
@@ -207,10 +210,8 @@ export function fromSan(pos: Position, san: string): Move | null {
     return true;
   });
 
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0]!;
-  // Multiple candidates and no disambiguation: use standard convention (file then rank, ascending)
-  candidates.sort((a, b) => (a.from - b.from));
+  // An ambiguous SAN (several matching moves) is invalid — do not guess.
+  if (candidates.length !== 1) return null;
   return candidates[0]!;
 }
 

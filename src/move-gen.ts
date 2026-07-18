@@ -5,15 +5,12 @@ import {
   Color,
   PieceType,
   MoveFlag,
-  CastlingRight,
   square,
   oppositeColor,
 } from './types.ts';
-import { bit, eachSquare, shiftNorth, shiftSouth, shiftNorthEast, shiftNorthWest, shiftSouthEast, shiftSouthWest, RANK_2, RANK_7, NOT_FILE_A, NOT_FILE_H, FULL } from './bitboard.ts';
+import { bit, bitscan, shiftNorth, shiftSouth, shiftNorthEast, shiftNorthWest, shiftSouthEast, shiftSouthWest, RANK_2, RANK_7 } from './bitboard.ts';
 import { occupied, colorBB, typeBB, kingSquare } from './board.ts';
-import { getCastlingRooks } from './castling.ts';
-import { KNIGHT_ATTACKS, KING_ATTACKS, bishopAttacks, rookAttacks, queenAttacks } from './attacks.ts';
-import { makeMove } from './make-move.ts';
+import { KNIGHT_ATTACKS, KING_ATTACKS, bishopAttacks, rookAttacks, queenAttacks, isAttacked } from './attacks.ts';
 
 // ---------------------------------------------------------------------------
 // Legal move generation
@@ -21,7 +18,8 @@ import { makeMove } from './make-move.ts';
 
 export function getLegalMoves(pos: Position): Move[] {
   const pseudoLegal = getPseudoLegalMoves(pos);
-  return pseudoLegal.filter((move) => isLegalMove(pos, move));
+  const ourKing = kingSquare(pos, pos.sideToMove);
+  return pseudoLegal.filter((move) => isLegalMove(pos, move, ourKing));
 }
 
 // ---------------------------------------------------------------------------
@@ -64,8 +62,10 @@ function generatePawnMoves(
   const promoRank = us === Color.White ? RANK_7 : RANK_2;
 
   // Single push
-  const singlePush = forward(pawns) & ~allOccupied;
-  for (const to of eachSquare(singlePush)) {
+  let singlePush = forward(pawns) & ~allOccupied;
+  while (singlePush) {
+    const to = bitscan(singlePush);
+    singlePush &= singlePush - 1n;
     const from = square(us === Color.White ? to - 8 : to + 8);
     if (bit(from) & promoRank) {
       addPromotions(from, to, moves);
@@ -77,8 +77,10 @@ function generatePawnMoves(
   // Double push
   const startPawns = pawns & startRank;
   const firstStep = forward(startPawns) & ~allOccupied;
-  const secondStep = forward(firstStep) & ~allOccupied;
-  for (const to of eachSquare(secondStep)) {
+  let secondStep = forward(firstStep) & ~allOccupied;
+  while (secondStep) {
+    const to = bitscan(secondStep);
+    secondStep &= secondStep - 1n;
     const from = square(us === Color.White ? to - 16 : to + 16);
     moves.push({ from, to, flag: MoveFlag.DoublePush });
   }
@@ -91,7 +93,10 @@ function generatePawnMoves(
   const leftOffset = us === Color.White ? -7 : 9;
   const rightOffset = us === Color.White ? -9 : 7;
 
-  for (const to of eachSquare(leftTargets)) {
+  let lt = leftTargets;
+  while (lt) {
+    const to = bitscan(lt);
+    lt &= lt - 1n;
     const from = square(to + leftOffset);
     if (bit(from) & promoRank) {
       addPromotions(from, to, moves);
@@ -99,7 +104,10 @@ function generatePawnMoves(
       moves.push({ from, to, flag: MoveFlag.Normal });
     }
   }
-  for (const to of eachSquare(rightTargets)) {
+  let rt = rightTargets;
+  while (rt) {
+    const to = bitscan(rt);
+    rt &= rt - 1n;
     const from = square(to + rightOffset);
     if (bit(from) & promoRank) {
       addPromotions(from, to, moves);
@@ -134,156 +142,162 @@ function addPromotions(from: Square, to: Square, moves: Move[]): void {
 // ---------------------------------------------------------------------------
 
 function generateKnightMoves(_us: Color, ourPieces: bigint, pos: Position, moves: Move[]): void {
-  const knights = ourPieces & typeBB(pos, PieceType.Knight);
-  for (const from of eachSquare(knights)) {
-    const attacks = KNIGHT_ATTACKS[from]! & ~ourPieces;
-    for (const to of eachSquare(attacks)) {
-      moves.push({ from, to, flag: MoveFlag.Normal });
-    }
+  let knights = ourPieces & typeBB(pos, PieceType.Knight);
+  while (knights) {
+    const from = bitscan(knights);
+    knights &= knights - 1n;
+    pushTargets(from, KNIGHT_ATTACKS[from]! & ~ourPieces, moves);
+  }
+}
+
+function pushTargets(from: Square, targets: bigint, moves: Move[]): void {
+  while (targets) {
+    const to = bitscan(targets);
+    targets &= targets - 1n;
+    moves.push({ from, to, flag: MoveFlag.Normal });
   }
 }
 
 function generateBishopMoves(_us: Color, ourPieces: bigint, allOccupied: bigint, pos: Position, moves: Move[]): void {
-  const bishops = ourPieces & typeBB(pos, PieceType.Bishop);
-  for (const from of eachSquare(bishops)) {
-    const attacks = bishopAttacks(from, allOccupied) & ~ourPieces;
-    for (const to of eachSquare(attacks)) {
-      moves.push({ from, to, flag: MoveFlag.Normal });
-    }
+  let bishops = ourPieces & typeBB(pos, PieceType.Bishop);
+  while (bishops) {
+    const from = bitscan(bishops);
+    bishops &= bishops - 1n;
+    pushTargets(from, bishopAttacks(from, allOccupied) & ~ourPieces, moves);
   }
 }
 
 function generateRookMoves(_us: Color, ourPieces: bigint, allOccupied: bigint, pos: Position, moves: Move[]): void {
-  const rooks = ourPieces & typeBB(pos, PieceType.Rook);
-  for (const from of eachSquare(rooks)) {
-    const attacks = rookAttacks(from, allOccupied) & ~ourPieces;
-    for (const to of eachSquare(attacks)) {
-      moves.push({ from, to, flag: MoveFlag.Normal });
-    }
+  let rooks = ourPieces & typeBB(pos, PieceType.Rook);
+  while (rooks) {
+    const from = bitscan(rooks);
+    rooks &= rooks - 1n;
+    pushTargets(from, rookAttacks(from, allOccupied) & ~ourPieces, moves);
   }
 }
 
 function generateQueenMoves(_us: Color, ourPieces: bigint, allOccupied: bigint, pos: Position, moves: Move[]): void {
-  const queens = ourPieces & typeBB(pos, PieceType.Queen);
-  for (const from of eachSquare(queens)) {
-    const attacks = queenAttacks(from, allOccupied) & ~ourPieces;
-    for (const to of eachSquare(attacks)) {
-      moves.push({ from, to, flag: MoveFlag.Normal });
-    }
+  let queens = ourPieces & typeBB(pos, PieceType.Queen);
+  while (queens) {
+    const from = bitscan(queens);
+    queens &= queens - 1n;
+    pushTargets(from, queenAttacks(from, allOccupied) & ~ourPieces, moves);
   }
 }
 
 function generateKingMoves(pos: Position, us: Color, ourPieces: bigint, _allOccupied: bigint, moves: Move[]): void {
   const kingSq = kingSquare(pos, us);
-  const attacks = KING_ATTACKS[kingSq]! & ~ourPieces;
-
-  for (const to of eachSquare(attacks)) {
-    moves.push({ from: kingSq, to, flag: MoveFlag.Normal });
-  }
+  pushTargets(kingSq, KING_ATTACKS[kingSq]! & ~ourPieces, moves);
 
   // Castling
   generateCastlingMoves(pos, us, moves);
 }
 
 function generateCastlingMoves(pos: Position, us: Color, moves: Move[]): void {
+  const rookIdxBase = us << 1;
+  if (pos.castlingRooks[rookIdxBase] === null && pos.castlingRooks[rookIdxBase + 1] === null) {
+    return;
+  }
+
   const allOcc = occupied(pos);
   const them = oppositeColor(us);
-  const kingsideRight = us === Color.White ? CastlingRight.WhiteKingside : CastlingRight.BlackKingside;
-  const queensideRight = us === Color.White ? CastlingRight.WhiteQueenside : CastlingRight.BlackQueenside;
-
-  const { king, kingsideRook, queensideRook } = getCastlingRooks(pos, us);
+  // A live castling right implies the king is still on its back rank.
+  const king = kingSquare(pos, us);
   const rank = king >> 3;
   const kingFile = king & 7;
 
   // FIDE Chess960: king and rook end on the same squares as in standard chess.
-  // Kingside: king to g (file 6), rook to f (file 5)
-  if (pos.castlingRights & kingsideRight && kingsideRook !== null) {
-    const rookFile = kingsideRook & 7;
-    const kingDest = square(rank * 8 + 6);
-    let pathBB = 0n;
-    for (let f = kingFile + 1; f <= 5; f++) {
-      if (f !== rookFile) pathBB |= bit(square(rank * 8 + f));
-    }
-    if (!(allOcc & pathBB)) {
-      let notAttacked = !isSquareAttacked(pos, king, them);
-      if (notAttacked) {
-        for (let f = kingFile; f <= 6; f++) {
-          if (isSquareAttacked(pos, square(rank * 8 + f), them)) {
-            notAttacked = false;
-            break;
-          }
-        }
-      }
-      if (notAttacked) {
-        moves.push({ from: king, to: kingDest, flag: MoveFlag.Castling });
-      }
-    }
-  }
+  // Kingside: king to g (file 6), rook to f (file 5). Queenside: king to c, rook to d.
+  for (let side = 0; side < 2; side++) {
+    const rookSq = pos.castlingRooks[rookIdxBase + side] ?? null;
+    if (rookSq === null) continue;
 
-  // Queenside: king to c (file 2), rook to d (file 3). If king already on c1/c8, kingDest = king.
-  if (pos.castlingRights & queensideRight && queensideRook !== null) {
-    const rookFile = queensideRook & 7;
-    const kingDest = kingFile === 2 ? king : square(rank * 8 + 2);
+    const kingDestFile = side === 0 ? 6 : 2;
+    const rookDestFile = side === 0 ? 5 : 3;
+    const rookFile = rookSq & 7;
+
+    // Every square the king or the rook crosses (destinations included) must be
+    // empty, apart from the king's and rook's own starting squares.
     let pathBB = 0n;
-    if (kingFile === 2) {
-      pathBB = bit(square(rank * 8 + 3)); // only rook dest (d1/d8) must be empty
-    } else {
-      for (let f = rookFile + 1; f <= kingFile - 1; f++) {
-        pathBB |= bit(square(rank * 8 + f));
+    const kLo = Math.min(kingFile, kingDestFile);
+    const kHi = Math.max(kingFile, kingDestFile);
+    for (let f = kLo; f <= kHi; f++) pathBB |= bit(square(rank * 8 + f));
+    const rLo = Math.min(rookFile, rookDestFile);
+    const rHi = Math.max(rookFile, rookDestFile);
+    for (let f = rLo; f <= rHi; f++) pathBB |= bit(square(rank * 8 + f));
+    pathBB &= ~bit(king) & ~bit(rookSq);
+    if (allOcc & pathBB) continue;
+
+    // No square the king stands on or crosses may be attacked.
+    let attacked = false;
+    for (let f = kLo; f <= kHi; f++) {
+      if (isAttacked(pos.pieces.byColor, pos.pieces.byType, square(rank * 8 + f), them)) {
+        attacked = true;
+        break;
       }
     }
-    if (!(allOcc & pathBB)) {
-      let notAttacked = !isSquareAttacked(pos, king, them);
-      if (notAttacked) {
-        for (let f = 2; f <= kingFile; f++) {
-          if (isSquareAttacked(pos, square(rank * 8 + f), them)) {
-            notAttacked = false;
-            break;
-          }
-        }
-      }
-      if (notAttacked) {
-        moves.push({ from: king, to: kingDest, flag: MoveFlag.Castling });
-      }
-    }
+    if (attacked) continue;
+
+    moves.push({ from: king, to: square(rank * 8 + kingDestFile), flag: MoveFlag.Castling });
   }
 }
 
 // ---------------------------------------------------------------------------
-// Legality filter
+// Legality filter — applies only the bitboard deltas of the move (no hash,
+// castling-rights, or clock bookkeeping) before testing for check.
 // ---------------------------------------------------------------------------
 
-function isLegalMove(pos: Position, move: Move): boolean {
-  const newPos = makeMove(pos, move);
+function isLegalMove(pos: Position, move: Move, ourKing: Square): boolean {
   const us = pos.sideToMove;
-  return !isSquareAttacked(newPos, kingSquare(newPos, us), oppositeColor(us));
-}
+  const them = oppositeColor(us);
+  const pieces = pos.pieces;
+  const fromBB = bit(move.from);
+  const toBB = bit(move.to);
 
-// ---------------------------------------------------------------------------
-// Attack detection
-// ---------------------------------------------------------------------------
+  let usBB = pieces.byColor[us];
+  let themBB = pieces.byColor[them];
+  const byType: [bigint, bigint, bigint, bigint, bigint, bigint] = [
+    pieces.byType[0],
+    pieces.byType[1],
+    pieces.byType[2],
+    pieces.byType[3],
+    pieces.byType[4],
+    pieces.byType[5],
+  ];
 
-export function isSquareAttacked(pos: Position, sq: Square, byColor: Color): boolean {
-  const attackers = colorBB(pos, byColor);
-  const allOcc = occupied(pos);
-
-  if (KNIGHT_ATTACKS[sq]! & attackers & typeBB(pos, PieceType.Knight)) return true;
-  if (KING_ATTACKS[sq]! & attackers & typeBB(pos, PieceType.King)) return true;
-
-  const diag = bishopAttacks(sq, allOcc);
-  if (diag & attackers & (typeBB(pos, PieceType.Bishop) | typeBB(pos, PieceType.Queen))) return true;
-
-  const straight = rookAttacks(sq, allOcc);
-  if (straight & attackers & (typeBB(pos, PieceType.Rook) | typeBB(pos, PieceType.Queen))) return true;
-
-  const pawns = attackers & typeBB(pos, PieceType.Pawn);
-  if (pawns) {
-    const sqBit = bit(sq);
-    const pawnAttackers = byColor === Color.White
-      ? ((sqBit >> 9n) & NOT_FILE_H) | ((sqBit >> 7n) & NOT_FILE_A)
-      : (((sqBit << 7n) & NOT_FILE_H) | ((sqBit << 9n) & NOT_FILE_A)) & FULL;
-    if (pawnAttackers & pawns) return true;
+  let kingSq: Square;
+  if (move.flag === MoveFlag.Castling) {
+    const isKingside = move.to === move.from ? (move.from & 7) === 6 : (move.to & 7) > (move.from & 7);
+    const rookSq = pos.castlingRooks[(us << 1) | (isKingside ? 0 : 1)]!;
+    const rookFromBB = bit(rookSq);
+    const rookToBB = bit(square((move.from >> 3) * 8 + (isKingside ? 5 : 3)));
+    usBB = (usBB & ~fromBB & ~rookFromBB) | toBB | rookToBB;
+    byType[PieceType.King] = (byType[PieceType.King] & ~fromBB) | toBB;
+    byType[PieceType.Rook] = (byType[PieceType.Rook] & ~rookFromBB) | rookToBB;
+    kingSq = move.to;
+  } else {
+    const srcType = typeAt(pieces.byType, fromBB);
+    if (themBB & toBB) {
+      const capturedType = typeAt(pieces.byType, toBB);
+      themBB &= ~toBB;
+      byType[capturedType] &= ~toBB;
+    } else if (move.flag === MoveFlag.EnPassant) {
+      const capBB = bit(square(us === Color.White ? move.to - 8 : move.to + 8));
+      themBB &= ~capBB;
+      byType[PieceType.Pawn] &= ~capBB;
+    }
+    usBB = (usBB & ~fromBB) | toBB;
+    byType[srcType] = (byType[srcType] & ~fromBB) | toBB;
+    kingSq = srcType === PieceType.King ? move.to : ourKing;
   }
 
-  return false;
+  const byColor: [bigint, bigint] = us === Color.White ? [usBB, themBB] : [themBB, usBB];
+  return !isAttacked(byColor, byType, kingSq, them);
+}
+
+function typeAt(byType: readonly bigint[], b: bigint): PieceType {
+  for (let pt = 0; pt < 5; pt++) {
+    if (byType[pt]! & b) return pt as PieceType;
+  }
+  return PieceType.King;
 }
