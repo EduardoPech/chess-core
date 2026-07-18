@@ -7,6 +7,7 @@ export type {
   Position,
   PieceBitboards,
   CastlingRights,
+  CastlingRookSquares,
 } from './types.ts';
 
 export {
@@ -61,7 +62,11 @@ export {
   isStalemate,
   isInsufficientMaterial,
   isFiftyMoveRule,
+  countRepetitions,
+  isThreefoldRepetition,
+  getGameResult,
 } from './validation.ts';
+export type { GameStatus } from './validation.ts';
 
 // Notation
 export { toSan, toUci, fromUci, fromSan } from './notation.ts';

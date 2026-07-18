@@ -105,6 +105,26 @@ export interface PieceBitboards {
 }
 
 // ---------------------------------------------------------------------------
+// Castling rook squares
+// ---------------------------------------------------------------------------
+
+/**
+ * The squares of the rooks that still hold a castling right, indexed as
+ * [whiteKingside, whiteQueenside, blackKingside, blackQueenside] — the same
+ * order as the CastlingRight bits. null = right lost. Storing the rook
+ * identity (rather than re-deriving it from the board) is required for
+ * Chess 960, where several rooks may share the back rank.
+ */
+export type CastlingRookSquares = readonly [
+  Square | null,
+  Square | null,
+  Square | null,
+  Square | null,
+];
+
+export const NO_CASTLING_ROOKS: CastlingRookSquares = [null, null, null, null];
+
+// ---------------------------------------------------------------------------
 // Position (immutable game state)
 // ---------------------------------------------------------------------------
 
@@ -112,6 +132,8 @@ export interface Position {
   readonly pieces: PieceBitboards;
   readonly sideToMove: Color;
   readonly castlingRights: CastlingRights;
+  /** Kept in sync with castlingRights: bit i set ⟺ castlingRooks[i] !== null. */
+  readonly castlingRooks: CastlingRookSquares;
   readonly epSquare: Square | null;
   readonly halfmoveClock: number;
   readonly fullmoveNumber: number;

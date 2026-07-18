@@ -26,8 +26,8 @@ describe('getCastlingRooks', () => {
   });
 
   it('returns correct rooks for a Chess 960 back rank (same setup both sides)', () => {
-    // Both ranks use R1B1K2R: R a, B c, K e, R h — king e1/e8, rooks a and h
-    const fen = 'R1B1K2R/pppppppp/8/8/8/8/PPPPPPPP/R1B1K2R w KQkq - 0 1';
+    // Both sides use the same setup: R a, B c, K e, R h — king e1/e8, rooks a and h
+    const fen = 'r1b1k2r/pppppppp/8/8/8/8/PPPPPPPP/R1B1K2R w KQkq - 0 1';
     const pos = fromFen(fen);
     const white = getCastlingRooks(pos, Color.White);
     expect(white.king).toBe(square(4)); // e1
@@ -103,5 +103,34 @@ describe('Chess 960 FEN generation', () => {
   it('chess960StartingFen throws for out-of-range index', () => {
     expect(() => chess960StartingFen(-1)).toThrow();
     expect(() => chess960StartingFen(960)).toThrow();
+  });
+
+  it('index 518 is the standard starting position (Scharnagl numbering)', () => {
+    expect(chess960StartingFen(518)).toBe(STARTING_FEN);
+  });
+
+  it('every index yields a valid position with black on rank 8', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 960; i++) {
+      const fen = chess960StartingFen(i);
+      seen.add(fen);
+      const pos = fromFen(fen);
+      // black king somewhere on rank 8, white king mirrored on rank 1
+      const backRank = fen.split('/')[0]!;
+      expect(backRank).toBe(backRank.toLowerCase());
+      expect(backRank.indexOf('k')).toBeGreaterThan(backRank.indexOf('r'));
+      expect(backRank.indexOf('k')).toBeLessThan(backRank.lastIndexOf('r'));
+      const bishops = [...backRank].flatMap((c, f) => (c === 'b' ? [f] : []));
+      expect((bishops[0]! + bishops[1]!) % 2).toBe(1); // opposite-color bishops
+      expect(pos.castlingRights).toBe(0b1111);
+    }
+    expect(seen.size).toBe(960); // all distinct
+  });
+
+  it('randomChess960Fen puts black on rank 8', () => {
+    const fen = randomChess960Fen(() => 0.5);
+    const backRank = fen.split('/')[0]!;
+    expect(backRank).toBe(backRank.toLowerCase());
+    expect(fen.split('/')[7]!.split(' ')[0]).toBe(backRank.toUpperCase());
   });
 });

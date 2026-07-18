@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { fromFen, STARTING_FEN } from '../src/fen.ts';
 import { fromSan } from '../src/notation.ts';
 import { makeMove } from '../src/make-move.ts';
+import { computeHash } from '../src/zobrist.ts';
 import { parsePgn } from './helpers/parse-pgn.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -32,6 +33,10 @@ describe('fixtures/games.pgn', () => {
           `Game ${gameIndex + 1}, move ${moveIndex + 1}: fromSan(pos, "${san}") returned null`
         ).not.toBeNull();
         pos = makeMove(pos, move!);
+        expect(
+          pos.hash,
+          `Game ${gameIndex + 1}, move ${moveIndex + 1}: incremental hash diverged from computeHash`
+        ).toBe(computeHash(pos));
       }
     }
   });

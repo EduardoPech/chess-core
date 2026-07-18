@@ -45,7 +45,8 @@ export function divide(pos: Position, depth: number): DivideResult[] {
       String.fromCharCode(97 + f) +
       (r + 1).toString() +
       String.fromCharCode(97 + tf) +
-      (tr + 1).toString();
+      (tr + 1).toString() +
+      (move.promotion !== undefined ? 'pnbrq'[move.promotion]! : '');
     results.push({ move: moveStr, nodes });
   }
 

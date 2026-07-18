@@ -82,13 +82,13 @@ describe('Move generation', () => {
 
     it('should not castle through check', () => {
       // Rook on f8 attacks f1, blocking white kingside castling
-      const fen = '5r2/8/8/8/8/8/8/R3K2R w KQ - 0 1';
+      const fen = '5r1k/8/8/8/8/8/8/R3K2R w KQ - 0 1';
       expect(hasUci(fen, 'e1g1')).toBe(false);
     });
 
     it('should not castle when in check', () => {
       // Black rook gives check on e-file
-      const fen = '4r3/8/8/8/8/8/8/R3K2R w KQ - 0 1';
+      const fen = '4r2k/8/8/8/8/8/8/R3K2R w KQ - 0 1';
       expect(hasUci(fen, 'e1g1')).toBe(false);
       expect(hasUci(fen, 'e1c1')).toBe(false);
     });
@@ -129,7 +129,7 @@ describe('Move generation', () => {
   describe('check evasion', () => {
     it('should only generate legal moves when in check', () => {
       // White king on e1, black rook on e8 gives check
-      const fen = '4r3/8/8/8/8/8/8/4K3 w - - 0 1';
+      const fen = '4r2k/8/8/8/8/8/8/4K3 w - - 0 1';
       const moves = getLegalMoves(fromFen(fen));
       // King must move off the e-file
       for (const m of moves) {
@@ -140,7 +140,7 @@ describe('Move generation', () => {
 
     it('should allow blocking a check', () => {
       // White king e1, white rook a2, black rook e8 gives check
-      const fen = '4r3/8/8/8/8/8/R7/4K3 w - - 0 1';
+      const fen = '4r2k/8/8/8/8/8/R7/4K3 w - - 0 1';
       const moves = getLegalMoves(fromFen(fen));
       expect(hasUci(fen, 'a2e2')).toBe(true);
     });
@@ -149,7 +149,7 @@ describe('Move generation', () => {
   describe('pinned pieces', () => {
     it('should not allow pinned piece to move off pin line', () => {
       // White king e1, white bishop e2, black rook e8 — bishop pinned on e-file
-      const fen = '4r3/8/8/8/8/8/4B3/4K3 w - - 0 1';
+      const fen = '4r2k/8/8/8/8/8/4B3/4K3 w - - 0 1';
       const moves = getLegalMoves(fromFen(fen));
       const bishopMoves = moves.filter((m) => m.from === 12); // e2 = square 12
       expect(bishopMoves.length).toBe(0);
@@ -157,7 +157,7 @@ describe('Move generation', () => {
 
     it('should allow pinned piece to move along pin line', () => {
       // White king e1, white rook e4, black rook e8 — rook pinned but can slide on e-file
-      const fen = '4r3/8/8/8/4R3/8/8/4K3 w - - 0 1';
+      const fen = '4r2k/8/8/8/4R3/8/8/4K3 w - - 0 1';
       const moves = getLegalMoves(fromFen(fen));
       const rookMoves = moves.filter((m) => m.from === 28); // e4 = square 28
       expect(rookMoves.length).toBeGreaterThan(0);

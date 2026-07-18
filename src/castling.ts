@@ -8,10 +8,12 @@ export interface CastlingRooks {
 }
 
 /**
- * Returns the king square and the kingside/queenside rook squares on the back rank
- * for the given color. Works for standard chess and Chess 960.
- * - Kingside rook: rook with smallest file > king file (right of king).
- * - Queenside rook: rook with largest file < king file (left of king).
+ * Infers the king square and the kingside/queenside rook squares on the back rank
+ * for the given color. Works for standard chess and Chess 960. Used when loading
+ * a FEN whose castling field uses K/Q/k/q letters; during play the bound rooks
+ * live in Position.castlingRooks and are never re-derived.
+ * - Kingside rook: outermost rook right of the king (X-FEN convention).
+ * - Queenside rook: outermost rook left of the king.
  * When the king is not on the back rank, rook squares are null (cannot infer K/Q).
  */
 export function getCastlingRooks(pos: Position, color: Color): CastlingRooks {
@@ -43,8 +45,9 @@ export function getCastlingRooks(pos: Position, color: Color): CastlingRooks {
   }
 
   const kingFile = kingOnBackRank & 7;
-  const rooksRight = rookFiles.filter((rf) => rf > kingFile).sort((a, b) => a - b);
-  const rooksLeft = rookFiles.filter((rf) => rf < kingFile).sort((a, b) => b - a);
+  // Outermost rooks (X-FEN convention): max file right of king, min file left.
+  const rooksRight = rookFiles.filter((rf) => rf > kingFile).sort((a, b) => b - a);
+  const rooksLeft = rookFiles.filter((rf) => rf < kingFile).sort((a, b) => a - b);
 
   return {
     king: kingSq,

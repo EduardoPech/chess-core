@@ -12,7 +12,9 @@ A fast, type-safe chess library for JavaScript and TypeScript. Immutable state, 
 - **Immutable positions** -- every move returns a new state
 - **Pure functions** -- no hidden state, fully tree-shakeable
 - **Type-safe** -- branded types for squares, files, and ranks
-- **Perft-tested** -- verified against known node counts
+- **Chess 960** -- full castling support, Scharnagl position numbering, X-FEN/Shredder-FEN castling fields
+- **Draw detection** -- stalemate, insufficient material, fifty-move rule, threefold repetition
+- **Perft-tested** -- verified against known node counts and Stockfish (standard and Chess 960)
 
 ## Install
 
@@ -44,6 +46,24 @@ fromFen(fen: string): Position
 toFen(pos: Position): string
 ```
 
+`fromFen` validates its input (rank lengths, exactly one king per side, no pawns
+on back ranks, en passant square, clocks) and throws a descriptive error on
+malformed FENs. Castling fields accept classical `KQkq`, X-FEN, and
+Shredder-FEN file letters (e.g. `HAha`); `toFen` emits file letters whenever a
+castling rook is not on its classical corner, so Chess 960 positions round-trip.
+
+Every `Position` carries a Zobrist `hash` that is maintained incrementally by
+`makeMove` and always equals `computeHash(pos)` — usable directly for
+transposition tables and repetition detection.
+
+### Chess 960
+
+```typescript
+chess960StartingFen(index: number): string  // Scharnagl numbering, 518 = standard chess
+randomChess960Fen(rng?: () => number): string
+getCastlingRooks(pos: Position, color: Color): CastlingRooks
+```
+
 ### Move Generation
 
 ```typescript
@@ -66,6 +86,26 @@ isStalemate(pos: Position): boolean
 isInsufficientMaterial(pos: Position): boolean
 isFiftyMoveRule(pos: Position): boolean
 isSquareAttacked(pos: Position, sq: Square, byColor: Color): boolean
+```
+
+### Draws & game result
+
+The library is stateless, so repetition detection takes a caller-supplied
+history of position hashes — push `pos.hash` after every move (and the starting
+position's hash), then:
+
+```typescript
+countRepetitions(hash: bigint, history: readonly bigint[]): number
+isThreefoldRepetition(pos: Position, history: readonly bigint[]): boolean
+getGameResult(pos: Position, history?: readonly bigint[]): GameStatus
+// GameStatus = { result: GameResult; drawReason?: DrawReason }
+```
+
+```typescript
+const history = [pos.hash];
+pos = makeMove(pos, move);
+history.push(pos.hash);
+const { result, drawReason } = getGameResult(pos, history);
 ```
 
 ### Notation

@@ -7,8 +7,9 @@ import {
   PieceType,
   CastlingRight,
   PIECE_TYPE_COUNT,
+  NO_CASTLING_ROOKS,
 } from './types.ts';
-import { EMPTY, bit } from './bitboard.ts';
+import { EMPTY, bit, bitscan } from './bitboard.ts';
 
 // ---------------------------------------------------------------------------
 // Empty / initial position
@@ -23,6 +24,7 @@ export const EMPTY_POSITION: Position = {
   pieces: EMPTY_PIECES,
   sideToMove: Color.White,
   castlingRights: CastlingRight.None,
+  castlingRooks: NO_CASTLING_ROOKS,
   epSquare: null,
   halfmoveClock: 0,
   fullmoveNumber: 1,
@@ -69,14 +71,7 @@ export function pieceAt(pos: Position, sq: Square): { color: Color; type: PieceT
 export function kingSquare(pos: Position, color: Color): Square {
   const kingBB = pos.pieces.byColor[color] & pos.pieces.byType[PieceType.King];
   if (kingBB === EMPTY) throw new Error(`No king found for color ${color}`);
-
-  let idx = 0;
-  let b = kingBB;
-  while ((b & 1n) === 0n) {
-    b >>= 1n;
-    idx++;
-  }
-  return idx as Square;
+  return bitscan(kingBB);
 }
 
 // ---------------------------------------------------------------------------

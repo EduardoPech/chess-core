@@ -1,7 +1,9 @@
-import { square } from './types.ts';
+import { Color, PieceType, square } from './types.ts';
 import type { Square } from './types.ts';
 import {
   bit,
+  bitscan,
+  bitscanReverse,
   FULL,
   NOT_FILE_A,
   NOT_FILE_H,
@@ -60,56 +62,103 @@ function initKingAttacks(): bigint[] {
 }
 
 // ---------------------------------------------------------------------------
-// Sliding piece attacks (ray-based, no magic bitboards yet)
+// Sliding piece attacks — classical precomputed rays + blocker bit scan
 // ---------------------------------------------------------------------------
 
-const DIRECTIONS_BISHOP = [
-  [1, 1],
-  [1, -1],
-  [-1, 1],
-  [-1, -1],
-] as const;
-
-const DIRECTIONS_ROOK = [
-  [0, 1],
-  [0, -1],
-  [1, 0],
-  [-1, 0],
-] as const;
-
-function slidingAttacks(
-  sq: Square,
-  occupied: bigint,
-  directions: readonly (readonly [number, number])[],
-): bigint {
-  let attacks = 0n;
-  const f = sq & 7;
-  const r = sq >> 3;
-
-  for (const [df, dr] of directions) {
-    let cf = f + df;
-    let cr = r + dr;
+function initRay(df: number, dr: number): bigint[] {
+  const table: bigint[] = new Array<bigint>(64);
+  for (let sq = 0; sq < 64; sq++) {
+    let ray = 0n;
+    let cf = (sq & 7) + df;
+    let cr = (sq >> 3) + dr;
     while (cf >= 0 && cf < 8 && cr >= 0 && cr < 8) {
-      const target = square(cr * 8 + cf);
-      const targetBit = bit(target);
-      attacks |= targetBit;
-      if (occupied & targetBit) break;
+      ray |= bit(square(cr * 8 + cf));
       cf += df;
       cr += dr;
     }
+    table[sq] = ray;
   }
+  return table;
+}
 
-  return attacks;
+// Positive rays extend toward higher square indices (blocker = LSB scan),
+// negative rays toward lower indices (blocker = MSB scan).
+const RAY_NE = initRay(1, 1);
+const RAY_NW = initRay(-1, 1);
+const RAY_SE = initRay(1, -1);
+const RAY_SW = initRay(-1, -1);
+const RAY_N = initRay(0, 1);
+const RAY_S = initRay(0, -1);
+const RAY_E = initRay(1, 0);
+const RAY_W = initRay(-1, 0);
+
+function positiveRay(rays: readonly bigint[], sq: Square, occupied: bigint): bigint {
+  const ray = rays[sq]!;
+  const blockers = ray & occupied;
+  if (blockers === 0n) return ray;
+  return ray ^ rays[bitscan(blockers)]!;
+}
+
+function negativeRay(rays: readonly bigint[], sq: Square, occupied: bigint): bigint {
+  const ray = rays[sq]!;
+  const blockers = ray & occupied;
+  if (blockers === 0n) return ray;
+  return ray ^ rays[bitscanReverse(blockers)]!;
 }
 
 export function bishopAttacks(sq: Square, occupied: bigint): bigint {
-  return slidingAttacks(sq, occupied, DIRECTIONS_BISHOP);
+  return (
+    positiveRay(RAY_NE, sq, occupied) |
+    positiveRay(RAY_NW, sq, occupied) |
+    negativeRay(RAY_SE, sq, occupied) |
+    negativeRay(RAY_SW, sq, occupied)
+  );
 }
 
 export function rookAttacks(sq: Square, occupied: bigint): bigint {
-  return slidingAttacks(sq, occupied, DIRECTIONS_ROOK);
+  return (
+    positiveRay(RAY_N, sq, occupied) |
+    positiveRay(RAY_E, sq, occupied) |
+    negativeRay(RAY_S, sq, occupied) |
+    negativeRay(RAY_W, sq, occupied)
+  );
 }
 
 export function queenAttacks(sq: Square, occupied: bigint): bigint {
   return bishopAttacks(sq, occupied) | rookAttacks(sq, occupied);
+}
+
+// ---------------------------------------------------------------------------
+// Attack detection on raw bitboards (single implementation, used by
+// validation.isSquareAttacked and the move-gen legality filter)
+// ---------------------------------------------------------------------------
+
+export function isAttacked(
+  byColor: readonly bigint[],
+  byType: readonly bigint[],
+  sq: Square,
+  attacker: Color,
+): boolean {
+  const attackers = byColor[attacker]!;
+  const occ = byColor[0]! | byColor[1]!;
+
+  if (KNIGHT_ATTACKS[sq]! & attackers & byType[PieceType.Knight]!) return true;
+  if (KING_ATTACKS[sq]! & attackers & byType[PieceType.King]!) return true;
+
+  const diag = bishopAttacks(sq, occ);
+  if (diag & attackers & (byType[PieceType.Bishop]! | byType[PieceType.Queen]!)) return true;
+
+  const straight = rookAttacks(sq, occ);
+  if (straight & attackers & (byType[PieceType.Rook]! | byType[PieceType.Queen]!)) return true;
+
+  const pawns = attackers & byType[PieceType.Pawn]!;
+  if (pawns) {
+    const sqBit = bit(sq);
+    const pawnAttackers = attacker === Color.White
+      ? ((sqBit >> 9n) & NOT_FILE_H) | ((sqBit >> 7n) & NOT_FILE_A)
+      : (((sqBit << 7n) & NOT_FILE_H) | ((sqBit << 9n) & NOT_FILE_A)) & FULL;
+    if (pawnAttackers & pawns) return true;
+  }
+
+  return false;
 }
